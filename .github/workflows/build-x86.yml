@@ -62,6 +62,14 @@ jobs:
         sudo mkdir -p /workdir
         sudo chown $USER:$GROUPS /workdir
 
+    - name: 安装 Node.js 20
+      # smartdns-ui 的 webui 用 Next.js 16 + React 19 + ESLint 9, 需 node>=20
+      # 用 actions/setup-node 而非 NodeSource 脚本: 后者会装新版 coreutils/findutils,
+      # 破坏 ubuntu-22.04 的 glibc 兼容 (find/sed/xargs 报 GLIBC_2.38 not found)
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
     - name: 检查空间使用情况1
       if: (!cancelled())
       run: df -hT
@@ -153,8 +161,10 @@ jobs:
         cd openwrt
         rm -rf dl/*
         echo -e "$(($(nproc)+1)) thread compile"
-        # PATH 让系统 node 20 优先于 lede staging 的 v16, 避免 smartdns-webui (Next 16) 的 npm run build 失败
-        export PATH="/usr/bin:$PATH"
+        # 让 setup-node 装的 node 20 优先于 lede staging 的 v16, 避免 smartdns-webui (Next 16) 的 npm run build 失败
+        NODE20_BIN=$(dirname $(which node))
+        export PATH="$NODE20_BIN:$PATH"
+        echo "using node: $(node -v) at $NODE20_BIN"
         make package/compile -j$(($(nproc)+1)) || make package/compile -j1 V=s
         make package/index
         make package/install -j$(nproc) || make package/install -j1 V=s

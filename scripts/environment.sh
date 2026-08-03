@@ -8,16 +8,12 @@ libreadline-dev libssl-dev libtool llvm lrzsz msmtp ninja-build p7zip p7zip-full
 python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion \
 swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev bash coreutils
 
-# 安装 Node.js 20 - smartdns-ui 的 webui 用 Next.js 16 + React 19 + ESLint 9, 需要 node>=20
-# lede 自带的 host node 包是 v16, 编译 smartdns-webui 的 npm run build 会因 ESLint 9 的 ES2025 语法失败
-# 装系统 node 20, 编译 smartdns 时让系统 node 优先于 lede staging 的 v16 (见 build-x86.yml 编译插件步骤)
-if ! command -v node >/dev/null 2>&1 || [ "$(node -v 2>/dev/null | cut -d. -f1 | tr -d v)" -lt 20 ]; then
-    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-    sudo apt-get install -y nodejs
-fi
-echo "node version: $(node -v 2>/dev/null), npm version: $(npm -v 2>/dev/null)"
-
 # 确认 clang 版本 - gn (naiveproxy 依赖, helloworld feed) 需 clang>=12 支持 C++20 <=>
 # ubuntu-22.04 默认 clang 为 14, 足够; xiaorouji 仓库的 naiveproxy 是预编译包, 不编译 gn, 不触发此问题
 echo "clang version: $(clang --version 2>/dev/null | head -1)"
+
+# 注意: node 20 的安装在 build-x86.yml 中用 actions/setup-node 完成(不在此处用 NodeSource 脚本)
+# 原因: NodeSource 的 setup_20.x 脚本会装新版 coreutils/findutils, 破坏 ubuntu-22.04 的 glibc 兼容
+# (find/sed/xargs 报 GLIBC_2.38 not found), 导致 feeds install 和 make defconfig 失败
+
 
