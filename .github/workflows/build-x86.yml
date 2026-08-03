@@ -39,8 +39,9 @@ env:
 jobs:
   build:
     # 用 ubuntu-24.04: 22.04 runner 镜像的 findutils/coreutils 需 glibc 2.38 但 libc6 仍是 2.35,
-    # 导致 find/sed/xargs 报 GLIBC_2.38 not found, feeds install 失败. 24.04 的 glibc 2.39 无此问题.
-    # binutils 2.42 在 24.04 的 FORTIFY 兼容问题通过升级 binutils 到 2.43.1 解决(见 packages-x86.txt)
+    # 导致 find/sed/xargs 报 GLIBC_2.38 not found. 24.04 的 glibc 2.39 无此问题.
+    # binutils 2.42 在 24.04 的 FORTIFY 兼容问题(__snprintf_chk undefined)通过
+    # 编译工具链步骤设置 HOST_CFLAGS=-U_FORTIFY_SOURCE 解决, 不切版本(避免破坏缓存)
     runs-on: ubuntu-24.04
 
     steps:
@@ -84,7 +85,7 @@ jobs:
       uses: klever1988/cachewrtbuild@main
       with:
         ccache: 'true'
-        mixkey: 'x86'
+        mixkey: 'x86-fortify-fix'  # 改 mixkey 使旧缓存失效, 强制重编 binutils(应用 HOST_CFLAGS 修复)
         prefix: ${{ github.workspace }}/openwrt
 
     - name: 安装 feeds
@@ -118,6 +119,11 @@ jobs:
 
     - name: 编译工具链
       id: mtools
+      env:
+        # 禁用 host build 的 FORTIFY_SOURCE, 修复 ubuntu-24.04 上 binutils 2.42 链接报
+        # __snprintf_chk/__sprintf_chk undefined (libiberty 的 .o 含 _FORTIFY 调用, 链接 as/ld 时缺符号)
+        # 不切 binutils 版本(避免破坏 cachewrtbuild 缓存), 不改 lede 源码, 仅环境变量
+        HOST_CFLAGS: -O2 -U_FORTIFY_SOURCE
       run: |
         cd openwrt
         make defconfig
