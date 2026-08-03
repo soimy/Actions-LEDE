@@ -20,6 +20,28 @@ CONFIG_PACKAGE_kmod-usb-hid=y
 #themes
 CONFIG_PACKAGE_luci-theme-argon=y
 
+#istore (应用商店) - lede 默认 feeds.conf 已含 istore feed, feeds install -a 后即可启用
+# 注意: istore 无独立 i18n 包, luci-app-store 自带中文(translations/zh-cn 内置)
+CONFIG_PACKAGE_luci-app-store=y
+CONFIG_PACKAGE_taskd=y
+CONFIG_PACKAGE_luci-lib-taskd=y
+
+#autosamba (SMB 文件共享) - 用 SAMBA4, 避免 ksmbd 与内核 6.12 不兼容
+CONFIG_PACKAGE_autosamba=y
+CONFIG_PACKAGE_autosamba_INCLUDE_SAMBA4=y
+# CONFIG_PACKAGE_autosamba_INCLUDE_KSMBD is not set
+# CONFIG_PACKAGE_kmod-fs-ksmbd is not set
+CONFIG_PACKAGE_luci-app-samba4=y
+CONFIG_PACKAGE_luci-i18n-samba4-zh-cn=y
+
+#smartdns-ui (smartdns Web 仪表盘) - 注意: smartdns-webui 用 Next.js 16, 需 node>=20, 见 environment.sh
+CONFIG_PACKAGE_smartdns-ui=y
+CONFIG_PACKAGE_luci-app-smartdns_INCLUDE_WebUI=y
+
+#vsftpd 与 vsftpd-alt 文件冲突, 二选一, 默认用 vsftpd-alt(更轻量) 或都不装
+# CONFIG_PACKAGE_vsftpd is not set
+# CONFIG_PACKAGE_vsftpd-alt is not set
+
 #luci
 CONFIG_PACKAGE_luci-app-accesscontrol=y
 CONFIG_PACKAGE_luci-app-adguardhome=y

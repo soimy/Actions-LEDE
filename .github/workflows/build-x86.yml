@@ -38,7 +38,10 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    # 用 ubuntu-22.04 而非 24.04: 22.04 的 glibc 2.31 与 lede binutils 2.42 host build 兼容稳定,
+    # 24.04 的 glibc 2.39 会导致 binutils 链接报 __snprintf_chk undefined (FORTIFY 兼容问题),
+    # 之前 24.04 靠 cachewrtbuild 缓存命中才偶尔成功, 缓存失效即挂
+    runs-on: ubuntu-22.04
 
     steps:
     - name: 检查
@@ -150,6 +153,8 @@ jobs:
         cd openwrt
         rm -rf dl/*
         echo -e "$(($(nproc)+1)) thread compile"
+        # PATH 让系统 node 20 优先于 lede staging 的 v16, 避免 smartdns-webui (Next 16) 的 npm run build 失败
+        export PATH="/usr/bin:$PATH"
         make package/compile -j$(($(nproc)+1)) || make package/compile -j1 V=s
         make package/index
         make package/install -j$(nproc) || make package/install -j1 V=s
