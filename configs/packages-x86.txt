@@ -5,6 +5,11 @@ CONFIG_GRUB_CONSOLE=n
 CONFIG_GRUB_SERIAL=""
 CONFIG_TARGET_IMAGES_GZIP=y
 
+#binutils - 用 2.43.1 替代默认 2.42, 修复 ubuntu-24.04 glibc 2.39 的 FORTIFY 兼容问题
+#(binutils 2.42 host build 链接报 __snprintf_chk undefined, 2.43.1 已修复)
+CONFIG_BINUTILS_VERSION_2_43_1=y
+# CONFIG_BINUTILS_VERSION_2_42 is not set
+
 #cache
 CONFIG_DEVEL=y
 CONFIG_CCACHE=y

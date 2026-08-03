@@ -38,10 +38,10 @@ env:
 
 jobs:
   build:
-    # 用 ubuntu-22.04 而非 24.04: 22.04 的 glibc 2.31 与 lede binutils 2.42 host build 兼容稳定,
-    # 24.04 的 glibc 2.39 会导致 binutils 链接报 __snprintf_chk undefined (FORTIFY 兼容问题),
-    # 之前 24.04 靠 cachewrtbuild 缓存命中才偶尔成功, 缓存失效即挂
-    runs-on: ubuntu-22.04
+    # 用 ubuntu-24.04: 22.04 runner 镜像的 findutils/coreutils 需 glibc 2.38 但 libc6 仍是 2.35,
+    # 导致 find/sed/xargs 报 GLIBC_2.38 not found, feeds install 失败. 24.04 的 glibc 2.39 无此问题.
+    # binutils 2.42 在 24.04 的 FORTIFY 兼容问题通过升级 binutils 到 2.43.1 解决(见 packages-x86.txt)
+    runs-on: ubuntu-24.04
 
     steps:
     - name: 检查
