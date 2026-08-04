@@ -11,14 +11,17 @@
 .github/workflows/build-x86.yml   # 主流程
 configs/packages-x86.txt          # .config 片段(追加到 openwrt/.config)
 scripts/environment.sh            # 装 apt 依赖 + node20
-scripts/packages.sh               # 克隆 passwall/openclash 等到 package/small
+scripts/feeds-extra.sh            # feeds update 前注入 smpackage + istore
+scripts/packages.sh               # feeds update 后清理冲突（kenzok8 惯例）
 scripts/init-settings.sh          # 改默认 IP 为 192.168.0.1
 scripts/preset-clash-core-amd64.sh
 ```
 
-流程：clone lede → feeds update -a → feeds install -a → 追加 packages-x86.txt 到 .config → packages.sh 克隆插件 → make defconfig → 分阶段编译(tools/toolchain/kernel/package/install)。
+流程：clone lede → feeds-extra.sh 注入源 → feeds update -a → packages.sh 清冲突 → feeds install -a → 追加 packages-x86.txt → make defconfig → 分阶段编译。
 
-**关键**：lede 默认 `feeds.conf.default` 已含 istore/helloworld/kenzo/small 等 feed，`feeds update -a` 后自动可用，只需在 .config 启用对应包。
+第三方源（lede 默认 feeds **已不再**自带这些）：
+- `kenzok8/small-package` → feed 名 `smpackage`（PassWall / SSR+ / OpenClash 及依赖）
+- `linkease/istore` → feed 名 `istore`（官方应用商店 luci-app-store）
 
 ---
 
@@ -26,7 +29,7 @@ scripts/preset-clash-core-amd64.sh
 
 | 项目 | 本地(WSL2) | CI(ubuntu-22.04) |
 |------|-----------|-------------------|
-| naiveproxy | helloworld feed **源码编译**, 依赖 gn → 需 clang≥12 | xiaorouji 仓库 **预编译二进制**, 不编译 gn |
+| naiveproxy | helloworld feed **源码编译**, 依赖 gn → 需 clang≥12 | smpackage 内 **预编译/同步上游**, 一般不编 gn |
 | smartdns-ui | 启用, npm build 需 node20 | 默认不启用(无 npm build); 已在 packages-x86.txt 启用 |
 | rust PATH | WSL 注入含空格 Windows PATH → find -execdir 失败 | 干净环境, 无此问题 |
 | ksmbd | 与内核 6.12 不兼容 | 已用 SAMBA4 避开 |
@@ -77,7 +80,8 @@ ksmbd 3.5.4 的 `vfs_path_parent_lookup` 签名/`LAST_NORM` 在 6.12 已变。au
 ## CI 配置补齐项（相对本地）
 
 已加到 `configs/packages-x86.txt`：
-- **istore**：`luci-app-store` + `taskd` + `luci-lib-taskd` + `luci-i18n-store-zh-cn`（lede 默认 feed 已含 istore，无需改 packages.sh）
+- **istore**：`luci-app-store` + `taskd` + `luci-lib-taskd` + `luci-lib-xterm`（**linkease/istore**；smpackage 内副本会删掉以免重名）
+- **passwall / ssr+ / openclash**：来自 **kenzok8/small-package**（不再 git clone 已 404 的 xiaorouji 仓库）
 - **autosamba**：`autosamba` + `INCLUDE_SAMBA4` + `luci-app-samba4`（避开 ksmbd 坑）
 - **smartdns-ui**：`smartdns-ui` + `luci-app-smartdns_INCLUDE_WebUI`（配套 node20）
 
@@ -86,7 +90,7 @@ ksmbd 3.5.4 的 `vfs_path_parent_lookup` 签名/`LAST_NORM` 在 6.12 已变。au
 ## 仍需注意
 
 - **cachewrtbuild 缓存**：CI 用 `klever1988/cachewrtbuild@main` 缓存 toolchain。改 runner(22.04) 后首次会全量编译（约 2h），之后缓存命中会快很多。缓存 key 含 `mixkey: 'x86'`，改 runner 版本不会污染旧缓存。
-- **NaiveProxy**：CI 用 xiaorouji 预编译包，不编译 gn。若某天改为 helloworld feed 源码编译，需确保 clang≥12（22.04 默认 clang-14 够）。
+- **NaiveProxy**：随 smpackage 同步；若改源码编译需 clang≥12（ubuntu-24.04 足够）。
 - **递归依赖噪音**：`make defconfig` 会报 3 个 recursive dependency（fchomo/nikki、easymesh、baresip），是 feed 上游 Kconfig bug，不阻断编译，可忽略。
 
 ---

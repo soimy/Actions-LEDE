@@ -76,7 +76,12 @@ jobs:
     - name: 安装 feeds
       run: |
         cd openwrt
+        # kenzok8/small-package + linkease/istore（须在 update 前写入 feeds）
+        chmod +x $GITHUB_WORKSPACE/scripts/feeds-extra.sh $GITHUB_WORKSPACE/scripts/packages.sh
+        $GITHUB_WORKSPACE/scripts/feeds-extra.sh
         ./scripts/feeds update -a
+        # 冲突清理后再 install
+        $GITHUB_WORKSPACE/scripts/packages.sh
         ./scripts/feeds install -a
 
     - name: 导入补丁和配置 & 执行脚本
@@ -87,7 +92,6 @@ jobs:
         cd openwrt
         rm target/linux/rockchip/patches-*/991-arm64-dts-rockchip-add-more-cpu-operating-points-for.patch || true
         chmod +x $GITHUB_WORKSPACE/$SETTINGS_SH && $GITHUB_WORKSPACE/$SETTINGS_SH
-        chmod +x $GITHUB_WORKSPACE/$PACKAGES_SH && $GITHUB_WORKSPACE/$PACKAGES_SH
         chmod +x $GITHUB_WORKSPACE/$CLASH_CORE_SH && $GITHUB_WORKSPACE/$CLASH_CORE_SH
 
     # - name: 下载文件

@@ -85,13 +85,18 @@ jobs:
       uses: klever1988/cachewrtbuild@main
       with:
         ccache: 'true'
-        mixkey: 'x86-fortify-fix'  # 改 mixkey 使旧缓存失效, 强制重编 binutils(应用 HOST_CFLAGS 修复)
+        mixkey: 'x86-smpackage-istore'  # smpackage+istore 源切换后换 key, 避免旧 package 缓存干扰
         prefix: ${{ github.workspace }}/openwrt
 
     - name: 安装 feeds
       run: |
         cd openwrt
+        # kenzok8/small-package + linkease/istore（须在 update 前写入 feeds）
+        chmod +x $GITHUB_WORKSPACE/scripts/feeds-extra.sh $GITHUB_WORKSPACE/scripts/packages.sh
+        $GITHUB_WORKSPACE/scripts/feeds-extra.sh
         ./scripts/feeds update -a
+        # 冲突清理后再 install
+        $GITHUB_WORKSPACE/scripts/packages.sh
         ./scripts/feeds install -a
 
     - name: 导入补丁和配置 & 执行脚本
@@ -102,7 +107,6 @@ jobs:
         cd openwrt
         chmod +x $GITHUB_WORKSPACE/$INSTALL5G_SH && $GITHUB_WORKSPACE/$INSTALL5G_SH
         chmod +x $GITHUB_WORKSPACE/$SETTINGS_SH && $GITHUB_WORKSPACE/$SETTINGS_SH
-        chmod +x $GITHUB_WORKSPACE/$PACKAGES_SH && $GITHUB_WORKSPACE/$PACKAGES_SH
         chmod +x $GITHUB_WORKSPACE/$CLASH_CORE_SH && $GITHUB_WORKSPACE/$CLASH_CORE_SH
 
     # - name: 下载文件
