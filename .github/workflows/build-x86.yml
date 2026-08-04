@@ -67,7 +67,7 @@ jobs:
       # smartdns-ui 的 webui 用 Next.js 16 + React 19 + ESLint 9, 需 node>=20
       # 用 actions/setup-node 而非 NodeSource 脚本: 后者会装新版 coreutils/findutils,
       # 破坏 ubuntu-22.04 的 glibc 兼容 (find/sed/xargs 报 GLIBC_2.38 not found)
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v7
       with:
         node-version: '20'
 
@@ -243,7 +243,7 @@ jobs:
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: 上传固件到发布
-      uses: softprops/action-gh-release@v2.0.4
+      uses: softprops/action-gh-release@v3.0.2
       if: steps.tag.outputs.status == 'success' && !cancelled()
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -253,13 +253,23 @@ jobs:
         files: ${{ env.FIRMWARE }}/*
 
     - name: 删除以前发布的固件
-      uses: dev-drprasad/delete-older-releases@v0.3.3
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
-      with:
-        keep_latest: 15
-        delete_tags: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # 原用 dev-drprasad/delete-older-releases, 但其上游已停更,
+      # 最新 v0.3.4 仍是 Node 20 runtime, 触发 GitHub 弃用警告。
+      # 改用 gh CLI 实现 keep_latest:15 + delete_tags 等效逻辑。
+      run: |
+        # 按 createdAt 升序列出所有 release 的 tag, 跳过最新 15 个, 删除其余(含 tag)
+        gh release list --repo "$GITHUB_REPOSITORY" --limit 100 \
+          --json tagName,createdAt -q 'sort_by(.createdAt) | .[].tagName' \
+          | head -n -15 \
+          | while read -r tag; do
+              [ -n "$tag" ] || continue
+              echo "删除 release 及 tag: $tag"
+              gh release delete "$tag" --repo "$GITHUB_REPOSITORY" \
+                --cleanup-tag --yes || true
+            done
 
     - name: 删除以前的工作流程
       uses: Mattraks/delete-workflow-runs@v2
