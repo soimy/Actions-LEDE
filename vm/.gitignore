@@ -1,0 +1,12 @@
+# Track scripts and docs only; ignore all runtime artifacts
+*
+!.gitignore
+!README.md
+!common.sh
+!fetch.sh
+!prepare.sh
+!net-up.sh
+!net-down.sh
+!run.sh
+!deploy.sh
+!stop.sh

@@ -1,0 +1,8 @@
+# VM verification runtime (firmware, disks, OVMF vars, PIDs)
+vm/firmware/
+vm/images/
+vm/state/
+vm/OVMF_VARS.fd
+vm/*.qcow2
+vm/*.pid
+vm/*.log
