@@ -1,52 +1,111 @@
 #!/bin/bash
+# feeds update 之后、feeds install 之前（或之后再次）做冲突清理。
+# 须在 openwrt 根目录执行。
+#
+# 策略：
+#   1) smpackage (kenzok8/small-package)：PassWall / PassWall2 / SSR+ / OpenClash 及代理依赖
+#   2) istore  (linkease/istore)：官方 luci-app-store / taskd / luci-lib-*
+#   3) 删除 smpackage 里会弄坏 lede 的系统包；代理栈优先 smpackage；商店优先官方 istore
+set -euo pipefail
 
-#删除feeds中的插件
-# rm -rf ./feeds/ssrp/ipt2socks
-# rm -rf ./feeds/ssrp/hysteria
-# rm -rf ./feeds/ssrp/v2ray-plugin
-# rm -rf ./feeds/ssrp/chinadns-ng
-# rm -rf ./feeds/ssrp/dns2tcp
-# rm -rf ./feeds/ssrp/naiveproxy
-# rm -rf ./feeds/ssrp/shadowsocksr-libev
-# rm -rf ./feeds/ssrp/v2ray-plugin
-# rm -rf ./feeds/packages/net/smartdns
-rm -rf ./feeds/packages/net/chinadns-ng
-rm -rf ./feeds/packages/net/sing-box
-rm -rf ./feeds/packages/net/xray-core
-# rm -rf ./feeds/luci/applications/luci-app-mosdns
-# rm -rf ./feeds/luci/applications/luci-app-smartdns
-rm -rf ./feeds/luci/applications/luci-app-passwall
-rm -rf ./feeds/luci/applications/luci-app-passwall2
-rm -rf ./feeds/luci/applications/luci-app-openclash
+echo "==> packages.sh: 清理第三方 feed 冲突"
 
+if [[ ! -d feeds ]]; then
+  echo "feeds/ 不存在，请先 ./scripts/feeds update" >&2
+  exit 1
+fi
 
-#克隆插件
-git clone --depth 1 https://github.com/xiaorouji/openwrt-passwall-packages.git package/pwpage
+# --- kenzok8 官方提示：删掉 smpackage 中与主线冲突的系统组件 ---
+# https://github.com/kenzok8/small-package
+if [[ -d feeds/smpackage ]]; then
+  echo "==> 清理 feeds/smpackage 系统级冲突包"
+  rm -rf feeds/smpackage/base-files \
+         feeds/smpackage/dnsmasq \
+         feeds/smpackage/firewall \
+         feeds/smpackage/firewall4 \
+         feeds/smpackage/fullconenat \
+         feeds/smpackage/fullconenat-nft \
+         feeds/smpackage/libnftnl \
+         feeds/smpackage/nftables \
+         feeds/smpackage/ppp \
+         feeds/smpackage/opkg \
+         feeds/smpackage/ucl \
+         feeds/smpackage/upx \
+         feeds/smpackage/miniupnpd-iptables \
+         feeds/smpackage/wireless-regdb
+  # vsftpd* 通配
+  rm -rf feeds/smpackage/vsftpd feeds/smpackage/vsftpd-alt \
+         feeds/smpackage/vsftpd* 2>/dev/null || true
 
+  # 商店走官方 istore，去掉 smpackage 内同步的副本，避免 “package already defined”
+  echo "==> 商店使用 linkease/istore，移除 smpackage 中的 store 栈"
+  rm -rf feeds/smpackage/luci-app-store \
+         feeds/smpackage/taskd \
+         feeds/smpackage/luci-lib-taskd \
+         feeds/smpackage/luci-lib-xterm
+else
+  echo "!! feeds/smpackage 不存在（是否未跑 feeds-extra.sh / feeds update？）" >&2
+fi
 
-mkdir package/small
-pushd package/small
-#adguardhome
-# git clone -b 2023.10 --depth 1 https://github.com/XiaoBinin/luci-app-adguardhome.git
-#lucky
-# git clone -b main --depth 1 https://github.com/sirpdboy/luci-app-lucky.git
-#smartdns
-# git clone -b lede --depth 1 https://github.com/pymumu/luci-app-smartdns.git
-# git clone -b master --depth 1 https://github.com/pymumu/smartdns.git
-#ssrp
-# git clone -b master --depth 1 https://github.com/fw876/helloworld.git
-#passwall
-git clone -b main --depth 1 https://github.com/xiaorouji/openwrt-passwall.git
-#passwall2
-git clone -b main --depth 1 https://github.com/xiaorouji/openwrt-passwall2.git
-#mosdns
-# git clone -b v5 --depth 1 https://github.com/sbwml/luci-app-mosdns.git
-#openclash
-git clone -b master --depth 1 https://github.com/vernesong/OpenClash.git
-#modem
-# git clone -b main --depth 1 https://github.com/FUjr/modem_feeds.git
+# --- 代理栈优先 smpackage：去掉 luci/packages 里的旧版同名包 ---
+echo "==> 代理栈优先 smpackage，移除 luci/packages 冲突"
+rm -rf \
+  feeds/luci/applications/luci-app-passwall \
+  feeds/luci/applications/luci-app-passwall2 \
+  feeds/luci/applications/luci-app-ssr-plus \
+  feeds/luci/applications/luci-app-openclash \
+  package/feeds/luci/luci-app-passwall \
+  package/feeds/luci/luci-app-passwall2 \
+  package/feeds/luci/luci-app-ssr-plus \
+  package/feeds/luci/luci-app-openclash
 
+# 依赖组件：让 smpackage 里的版本生效
+for pkg in \
+  chinadns-ng sing-box xray-core xray-plugin v2ray-core v2ray-geodata v2ray-plugin \
+  naiveproxy microsocks dns2socks ipt2socks simple-obfs tcping \
+  shadowsocks-rust shadowsocksr-libev hysteria tuic-client geoview
+do
+  rm -rf "feeds/packages/net/${pkg}" \
+         "package/feeds/packages/${pkg}" 2>/dev/null || true
+done
 
-popd
+# --- 校验关键包路径 ---
+check_pkg() {
+  local label="$1"
+  shift
+  local p
+  for p in "$@"; do
+    if [[ -f "${p}" ]]; then
+      echo "    OK ${label}: ${p}"
+      return 0
+    fi
+  done
+  echo "    FAIL ${label}: 未找到 Makefile ($*)" >&2
+  return 1
+}
 
-echo "packages executed successfully!"
+echo "==> 校验关键包"
+ok=0
+check_pkg "passwall" \
+  feeds/smpackage/luci-app-passwall/Makefile || ok=1
+check_pkg "passwall2" \
+  feeds/smpackage/luci-app-passwall2/Makefile || ok=1
+check_pkg "openclash" \
+  feeds/smpackage/luci-app-openclash/Makefile || ok=1
+check_pkg "ssr-plus" \
+  feeds/smpackage/luci-app-ssr-plus/Makefile || ok=1
+check_pkg "istore" \
+  feeds/istore/luci/luci-app-store/Makefile \
+  feeds/istore/luci-app-store/Makefile || ok=1
+check_pkg "taskd" \
+  feeds/istore/luci/taskd/Makefile \
+  feeds/istore/taskd/Makefile || ok=1
+
+if [[ "${ok}" -ne 0 ]]; then
+  echo "关键包缺失，中止（避免再编出无 PassWall/iStore 的固件）" >&2
+  exit 1
+fi
+
+echo "==> packages.sh: done"
+echo "    proxy : feeds/smpackage (kenzok8/small-package)"
+echo "    store : feeds/istore     (linkease/istore)"
