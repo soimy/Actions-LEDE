@@ -44,6 +44,30 @@ if [[ -d feeds/smpackage ]]; then
          feeds/smpackage/taskd \
          feeds/smpackage/luci-lib-taskd \
          feeds/smpackage/luci-lib-xterm
+
+  # netdata 2.x (cmake): NetdataVersion.cmake 若找到 host git，会在 build_dir
+  # 向上找到 openwrt 仓库并 git describe，输出不匹配 vX.Y.Z →
+  # "Wrong version regex match count 0"。强制走 packaging/version。
+  if [[ -d feeds/smpackage/netdata ]]; then
+    echo "==> 修复 feeds/smpackage/netdata 版本检测 (禁用 git describe)"
+    mkdir -p feeds/smpackage/netdata/patches
+    cat > feeds/smpackage/netdata/patches/999-openwrt-force-packaging-version.patch << 'PATCH_EOF'
+--- a/packaging/cmake/Modules/NetdataVersion.cmake
++++ b/packaging/cmake/Modules/NetdataVersion.cmake
+@@ -5,7 +5,10 @@
+ # packaging/version. This version field are used for cmake's project,
+ # cpack's packaging, and the agent's functionality.
+ function(netdata_version)
+-        find_package(Git)
++        # OpenWrt: host Git discovers parent openwrt/.git; describe output is
++        # not a netdata version and fails CMAKE_MATCH_COUNT (need 3/4/5).
++        # Force fallback to packaging/version from the release tarball.
++        set(GIT_EXECUTABLE "")
+ 
+         if(GIT_EXECUTABLE)
+                 execute_process(COMMAND ${GIT_EXECUTABLE} describe
+PATCH_EOF
+  fi
 else
   echo "!! feeds/smpackage 不存在（是否未跑 feeds-extra.sh / feeds update？）" >&2
 fi
