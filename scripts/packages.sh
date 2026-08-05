@@ -45,6 +45,23 @@ if [[ -d feeds/smpackage ]]; then
          feeds/smpackage/luci-lib-taskd \
          feeds/smpackage/luci-lib-xterm
 
+  # lean 旧版 luci-app 自带 /etc/init.d 或 /etc/config，与 packages 二进制包冲突：
+  #   luci-app-frps        vs frps          → /etc/init.d/frps
+  #   luci-app-zerotier    vs zerotier      → /etc/init.d/zerotier
+  #   luci-app-openvpn-server vs openvpn    → /etc/config/openvpn
+  # coolsnowwolf/luci (openwrt-25.12) 的同名包为 JS/无冲突版，删 smpackage 副本以让 luci feed 生效。
+  echo "==> 移除 smpackage 中与 packages/luci 文件冲突的 lean luci-app"
+  rm -rf feeds/smpackage/other/lean/luci-app-frps \
+         feeds/smpackage/other/lean/luci-app-frpc \
+         feeds/smpackage/other/lean/luci-app-zerotier \
+         feeds/smpackage/luci-app-openvpn-server \
+         feeds/smpackage/luci-app-openvpn-client \
+         package/feeds/smpackage/luci-app-frps \
+         package/feeds/smpackage/luci-app-frpc \
+         package/feeds/smpackage/luci-app-zerotier \
+         package/feeds/smpackage/luci-app-openvpn-server \
+         package/feeds/smpackage/luci-app-openvpn-client
+
   # netdata 2.x (cmake): NetdataVersion.cmake 若找到 host git，会在 build_dir
   # 向上找到 openwrt 仓库并 git describe，输出不匹配 vX.Y.Z →
   # "Wrong version regex match count 0"。强制走 packaging/version。
