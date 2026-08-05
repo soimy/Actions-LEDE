@@ -68,6 +68,18 @@ if [[ -d feeds/smpackage ]]; then
                  execute_process(COMMAND ${GIT_EXECUTABLE} describe
 PATCH_EOF
   fi
+
+  # openvpn-easy-rsa-whisky: 上游 101-static_EASYRSA.patch 行号/空白与 easy-rsa
+  # 3.0.9 (150e96e) 不匹配 → Hunk #1 FAILED。luci-app-openvpn-server 依赖此包，
+  # 且 openvpncert.sh 需要 EASYRSA_PKI=/tmp/easyrsa3/pki。
+  # 补丁经 git apply 对 150e96e 校验通过（base64 避免 TAB 丢失）。
+  if [[ -d feeds/smpackage/openvpn-easy-rsa-whisky ]]; then
+    echo "==> 修复 feeds/smpackage/openvpn-easy-rsa-whisky 静态路径补丁"
+    mkdir -p feeds/smpackage/openvpn-easy-rsa-whisky/patches
+    base64 -d > feeds/smpackage/openvpn-easy-rsa-whisky/patches/101-static_EASYRSA.patch << 'B64'
+LS0tIGEvZWFzeXJzYTMvZWFzeXJzYQorKysgYi9lYXN5cnNhMy9lYXN5cnNhCkBAIC0yNTYyLDEwICsyNTYyLDEwIEBACiAJIyBSZW1vdmVkIGZvciBiYXNpYyBzYW5pdHkgLSBUbyByZS1lbmFibGUgcHJvdmlkZSBhIFJFQVNPTgogCSNwcm9nX2ZpbGUyPSIkKHdoaWNoIC0tICIkcHJvZ19maWxlIiAyPi9kZXYvbnVsbCkiICYmIHByb2dfZmlsZT0iJHByb2dfZmlsZTIiCiAJI3Byb2dfZmlsZTI9IiQocmVhZGxpbmsgLWYgIiRwcm9nX2ZpbGUiIDI+L2Rldi9udWxsKSIgJiYgcHJvZ19maWxlPSIkcHJvZ19maWxlMiIKLQlwcm9nX2Rpcj0iJHtwcm9nX2ZpbGUlLyp9IgorCXByb2dfZGlyPSIvZXRjL2Vhc3ktcnNhIgogCiAJIyBQcm9ncmFtIGRpciB2YXJzIC0gVGhpcyBsb2NhdGlvbiBpcyBsZWFzdCB3YW50ZWQuCi0JcHJvZ192YXJzPSIke3Byb2dfZGlyfS92YXJzIgorCXByb2dfdmFycz0iL2V0Yy9lYXN5LXJzYS92YXJzIgogCiAJIyBzZXQgdXAgUEtJIHBhdGggdmFycyAtIFRvcCBwcmVmZXJlbmNlCiAJcGtpX3ZhcnM9IiR7RUFTWVJTQV9QS0k6LSRQV0QvcGtpfS92YXJzIgpAQCAtMjY4OSw3ICsyNjg5LDcgQEAKIAkjIFNldCBkZWZhdWx0cywgcHJlZmVycmluZyBleGlzdGluZyBlbnYtdmFycyBpZiBwcmVzZW50CiAJc2V0X3ZhciBFQVNZUlNBCQkJCQkiJFBXRCIKIAlzZXRfdmFyIEVBU1lSU0FfT1BFTlNTTAkJCW9wZW5zc2wKLQlzZXRfdmFyIEVBU1lSU0FfUEtJCQkJCSIkRUFTWVJTQS9wa2kiCisJc2V0X3ZhciBFQVNZUlNBX1BLSQkJCQkiL3RtcC9lYXN5cnNhMy9wa2kiCiAJc2V0X3ZhciBFQVNZUlNBX0ROCQkJCWNuX29ubHkKIAlzZXRfdmFyIEVBU1lSU0FfUkVRX0NPVU5UUlkJCSJVUyIKIAlzZXRfdmFyIEVBU1lSU0FfUkVRX1BST1ZJTkNFCSJDYWxpZm9ybmlhIgo=
+B64
+  fi
 else
   echo "!! feeds/smpackage 不存在（是否未跑 feeds-extra.sh / feeds update？）" >&2
 fi
