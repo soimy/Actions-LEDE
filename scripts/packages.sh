@@ -80,6 +80,50 @@ PATCH_EOF
 LS0tIGEvZWFzeXJzYTMvZWFzeXJzYQorKysgYi9lYXN5cnNhMy9lYXN5cnNhCkBAIC0yNTYyLDEwICsyNTYyLDEwIEBACiAJIyBSZW1vdmVkIGZvciBiYXNpYyBzYW5pdHkgLSBUbyByZS1lbmFibGUgcHJvdmlkZSBhIFJFQVNPTgogCSNwcm9nX2ZpbGUyPSIkKHdoaWNoIC0tICIkcHJvZ19maWxlIiAyPi9kZXYvbnVsbCkiICYmIHByb2dfZmlsZT0iJHByb2dfZmlsZTIiCiAJI3Byb2dfZmlsZTI9IiQocmVhZGxpbmsgLWYgIiRwcm9nX2ZpbGUiIDI+L2Rldi9udWxsKSIgJiYgcHJvZ19maWxlPSIkcHJvZ19maWxlMiIKLQlwcm9nX2Rpcj0iJHtwcm9nX2ZpbGUlLyp9IgorCXByb2dfZGlyPSIvZXRjL2Vhc3ktcnNhIgogCiAJIyBQcm9ncmFtIGRpciB2YXJzIC0gVGhpcyBsb2NhdGlvbiBpcyBsZWFzdCB3YW50ZWQuCi0JcHJvZ192YXJzPSIke3Byb2dfZGlyfS92YXJzIgorCXByb2dfdmFycz0iL2V0Yy9lYXN5LXJzYS92YXJzIgogCiAJIyBzZXQgdXAgUEtJIHBhdGggdmFycyAtIFRvcCBwcmVmZXJlbmNlCiAJcGtpX3ZhcnM9IiR7RUFTWVJTQV9QS0k6LSRQV0QvcGtpfS92YXJzIgpAQCAtMjY4OSw3ICsyNjg5LDcgQEAKIAkjIFNldCBkZWZhdWx0cywgcHJlZmVycmluZyBleGlzdGluZyBlbnYtdmFycyBpZiBwcmVzZW50CiAJc2V0X3ZhciBFQVNZUlNBCQkJCQkiJFBXRCIKIAlzZXRfdmFyIEVBU1lSU0FfT1BFTlNTTAkJCW9wZW5zc2wKLQlzZXRfdmFyIEVBU1lSU0FfUEtJCQkJCSIkRUFTWVJTQS9wa2kiCisJc2V0X3ZhciBFQVNZUlNBX1BLSQkJCQkiL3RtcC9lYXN5cnNhMy9wa2kiCiAJc2V0X3ZhciBFQVNZUlNBX0ROCQkJCWNuX29ubHkKIAlzZXRfdmFyIEVBU1lSU0FfUkVRX0NPVU5UUlkJCSJVUyIKIAlzZXRfdmFyIEVBU1lSU0FfUkVRX1BST1ZJTkNFCSJDYWxpZm9ybmlhIgo=
 B64
   fi
+
+  # vlmcsd + CONFIG_CCACHE: 上游 GNUmakefile 在 CC="ccache gcc" 时失败
+  #   fatal error: cannot specify '-o' with '-c' ... with multiple files
+  # ImmortalWrt 同款：强制 TARGET_CC_NOCACHE，跳过 ccache 包装。
+  VLMCSD_MK=""
+  for cand in feeds/smpackage/other/lean/vlmcsd/Makefile feeds/smpackage/vlmcsd/Makefile; do
+    if [[ -f "${cand}" ]]; then
+      VLMCSD_MK="${cand}"
+      break
+    fi
+  done
+  if [[ -n "${VLMCSD_MK}" ]]; then
+    if grep -q 'TARGET_CC_NOCACHE' "${VLMCSD_MK}"; then
+      echo "==> ${VLMCSD_MK} 已含 TARGET_CC_NOCACHE，跳过"
+    else
+      echo "==> 修复 ${VLMCSD_MK} (CC=TARGET_CC_NOCACHE，兼容 ccache)"
+      python3 - "${VLMCSD_MK}" <<'PY'
+import sys
+from pathlib import Path
+p = Path(sys.argv[1])
+text = p.read_text()
+if "TARGET_CC_NOCACHE" in text:
+    sys.exit(0)
+old = "MAKE_FLAGS += \\\n\t-C $(PKG_BUILD_DIR)\n"
+new = "MAKE_FLAGS += \\\n\t-C $(PKG_BUILD_DIR) \\\n\tCC=\"$(TARGET_CC_NOCACHE)\"\n"
+if old in text:
+    text = text.replace(old, new, 1)
+else:
+    # 宽松：在 BuildPackage 前追加
+    marker = "$(eval $(call BuildPackage,vlmcsd))"
+    if marker not in text:
+        raise SystemExit(f"cannot patch {p}: no MAKE_FLAGS or BuildPackage marker")
+    text = text.replace(
+        marker,
+        'MAKE_FLAGS += CC="$(TARGET_CC_NOCACHE)"\n\n' + marker,
+        1,
+    )
+p.write_text(text)
+print(f"patched {p}")
+PY
+    fi
+  else
+    echo "!! 未找到 smpackage vlmcsd Makefile（若未选 luci-app-vlmcsd 可忽略）"
+  fi
 else
   echo "!! feeds/smpackage 不存在（是否未跑 feeds-extra.sh / feeds update？）" >&2
 fi
