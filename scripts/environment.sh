@@ -12,7 +12,4 @@ swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev bash coreutils
 # ubuntu-24.04 默认 clang 为 16/18, 足够; xiaorouji 仓库的 naiveproxy 是预编译包, 不编译 gn, 不触发此问题
 echo "clang version: $(clang --version 2>/dev/null | head -1)"
 
-# 注意: node 20 的安装在 build-x86.yml 中用 actions/setup-node 完成(不在此处用 NodeSource 脚本)
-# 原因: NodeSource 的 setup_20.x 脚本会污染 apt, 破坏系统工具链兼容
-
 

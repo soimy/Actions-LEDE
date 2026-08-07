@@ -3,7 +3,7 @@
 # 须在 openwrt 根目录执行。
 #
 # 策略：
-#   1) smpackage (kenzok8/small-package)：PassWall / PassWall2 / SSR+ / OpenClash 及代理依赖
+#   1) smpackage (kenzok8/small-package)：PassWall 及代理依赖
 #   2) istore  (linkease/istore)：官方 luci-app-store / taskd / luci-lib-*
 #   3) 删除 smpackage 里会弄坏 lede 的系统包；代理栈优先 smpackage；商店优先官方 istore
 set -euo pipefail
@@ -88,12 +88,6 @@ echo "==> 校验关键包"
 ok=0
 check_pkg "passwall" \
   feeds/smpackage/luci-app-passwall/Makefile || ok=1
-check_pkg "passwall2" \
-  feeds/smpackage/luci-app-passwall2/Makefile || ok=1
-check_pkg "openclash" \
-  feeds/smpackage/luci-app-openclash/Makefile || ok=1
-check_pkg "ssr-plus" \
-  feeds/smpackage/luci-app-ssr-plus/Makefile || ok=1
 check_pkg "istore" \
   feeds/istore/luci/luci-app-store/Makefile \
   feeds/istore/luci-app-store/Makefile || ok=1
