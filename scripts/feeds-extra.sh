@@ -45,7 +45,7 @@ append_feed() {
 echo "==> feeds-extra.sh: 注入第三方 feeds (${FEEDS_FILE})"
 
 # kenzok8 插件合集（PassWall 及其代理后端）
-append_feed smpackage "https://github.com/kenzok8/small-package"
+append_feed smpackage "https://github.com/kenzok8/small-package" prepend
 
 # 官方 iStore（商店本体；与 smpackage 内可能自带的 store 去重见 packages.sh）
 append_feed istore "https://github.com/linkease/istore;main" append
