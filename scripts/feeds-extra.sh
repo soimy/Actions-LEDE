@@ -17,15 +17,29 @@ if [[ ! -f "${FEEDS_FILE}" ]]; then
   exit 1
 fi
 
+# 同名包时 openwrt 优先采用 feeds 文件中靠前的源。
+# smpackage 需要压过 packages/luci，故默认插到文件顶部。
 append_feed() {
   local name="$1"
   local url="$2"
+  local position="${3:-append}" # append | prepend
   if grep -qE "^src-git[[:space:]]+${name}[[:space:]]" "${FEEDS_FILE}"; then
     echo "==> feed '${name}' 已存在，跳过"
     return 0
   fi
-  echo "src-git ${name} ${url}" >> "${FEEDS_FILE}"
-  echo "==> 已添加 feed: ${name} -> ${url}"
+  if [[ "${position}" == "prepend" ]]; then
+    local tmp
+    tmp="$(mktemp)"
+    {
+      echo "src-git ${name} ${url}"
+      cat "${FEEDS_FILE}"
+    } > "${tmp}"
+    mv "${tmp}" "${FEEDS_FILE}"
+    echo "==> 已前置 feed: ${name} -> ${url}"
+  else
+    echo "src-git ${name} ${url}" >> "${FEEDS_FILE}"
+    echo "==> 已添加 feed: ${name} -> ${url}"
+  fi
 }
 
 echo "==> feeds-extra.sh: 注入第三方 feeds (${FEEDS_FILE})"
@@ -34,7 +48,7 @@ echo "==> feeds-extra.sh: 注入第三方 feeds (${FEEDS_FILE})"
 append_feed smpackage "https://github.com/kenzok8/small-package"
 
 # 官方 iStore（商店本体；与 smpackage 内可能自带的 store 去重见 packages.sh）
-append_feed istore "https://github.com/linkease/istore;main"
+append_feed istore "https://github.com/linkease/istore;main" append
 
 echo "==> feeds-extra.sh: 当前 feeds 列表"
 grep -E '^src-git' "${FEEDS_FILE}" || true
