@@ -38,7 +38,7 @@ jobs:
     # 用 ubuntu-24.04: 22.04 runner 镜像的 findutils/coreutils 需 glibc 2.38 但 libc6 仍是 2.35,
     # 导致 find/sed/xargs 报 GLIBC_2.38 not found. 24.04 的 glibc 2.39 无此问题.
     # binutils 2.42 在 24.04 的 FORTIFY 兼容问题(__snprintf_chk undefined)
-    # 通过 packages-x86.txt 固定到 2.43.1 解决。
+    # 通过 packages-x86.txt 的 CONFIG_BINUTILS_USE_VERSION_2_43 固定到 2.43.1 解决。
     runs-on: ubuntu-24.04
 
     steps:
@@ -74,7 +74,7 @@ jobs:
       uses: klever1988/cachewrtbuild@main
       with:
         ccache: 'true'
-        mixkey: 'x86-smpackage-istore-binutils243'  # binutils 版本变更，避免命中 2.42 缓存
+        mixkey: 'x86-smpackage-istore-binutils243-kconfig43'  # Kconfig 符号变更，丢弃旧缓存
         prefix: ${{ github.workspace }}/openwrt
 
     - name: 安装 feeds
@@ -115,6 +115,13 @@ jobs:
       run: |
         cd openwrt
         make defconfig
+        resolved_binutils="$(sed -n 's/^CONFIG_BINUTILS_VERSION="\([^\"]*\)"/\1/p' .config || true)"
+        echo "Resolved binutils version: ${resolved_binutils:-<unset>}"
+        if [ "${resolved_binutils}" != "2.43.1" ]; then
+          echo "ERROR: expected binutils 2.43.1, got ${resolved_binutils:-<unset>}" >&2
+          grep -E '^CONFIG_BINUTILS(_USE_VERSION|_VERSION)_' .config || true
+          exit 1
+        fi
         echo -e "$(($(nproc)+1)) thread compile"
         make tools/compile -j$(($(nproc)+1)) || make tools/compile -j1 V=s
         make toolchain/compile -j$(($(nproc)+1)) || make toolchain/compile -j1 V=s

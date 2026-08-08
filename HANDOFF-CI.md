@@ -90,10 +90,12 @@ undefined reference to '__isoc23_strtol'
 
 修复在 `d3a13c6`：
 
-- `configs/packages-x86.txt` 固定 `CONFIG_BINUTILS_VERSION_2_43_1=y`；
+- `configs/packages-x86.txt` 使用当前 LEDE master 的 `CONFIG_BINUTILS_USE_VERSION_2_43=y`，并在编译前校验解析结果为 `2.43.1`；
 - x86 runner 保持 `ubuntu-24.04`；
 - x86 的 `HOST_CFLAGS` 使用 `-O2 -U_FORTIFY_SOURCE`；
-- cache mix key 改为 `x86-smpackage-istore-binutils243`，避免复用 2.42 工具链缓存。
+- cache mix key 改为 `x86-smpackage-istore-binutils243-kconfig43`，避免复用旧 Kconfig 符号生成的工具链缓存。
+
+当前 LEDE master 已从旧的 `CONFIG_BINUTILS_VERSION_2_43_1` 选择符切换为 `CONFIG_BINUTILS_USE_VERSION_2_43`。如果不更新选择符，`make defconfig` 会静默回退到默认 binutils 2.42；工作流现在会在真正编译前直接报出解析版本，避免浪费几十分钟后才失败。
 
 成功运行：[31185744904](https://github.com/soimy/Actions-LEDE/actions/runs/31185744904)，工具链、内核、插件和固件阶段均通过。
 
