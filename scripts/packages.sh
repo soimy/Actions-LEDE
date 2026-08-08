@@ -9,6 +9,8 @@
 #   4) 删除 packages/luci 冲突后必须 feeds update -i 重建索引，否则 install 仍指向已删路径
 set -euo pipefail
 
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
 echo "==> packages.sh: 清理第三方 feed 冲突"
 
 if [[ ! -d feeds ]]; then
@@ -34,6 +36,39 @@ if [[ -d feeds/smpackage ]]; then
          feeds/smpackage/upx \
          feeds/smpackage/miniupnpd-iptables \
          feeds/smpackage/wireless-regdb
+
+  # kenzok8/small-package 的 lucky 仅安装二进制，缺少 init/config；
+  # LuCI 页面依赖 /etc/init.d/lucky，故补齐服务文件。
+  LUCKY_MK="feeds/smpackage/lucky/Makefile"
+  if [[ -f "${LUCKY_MK}" ]]; then
+    echo "==> 修复 feeds/smpackage/lucky 服务文件"
+    if ! grep -q 'etc/init.d/lucky' "${LUCKY_MK}"; then
+      mkdir -p feeds/smpackage/lucky/files
+      cp "${SCRIPT_DIR}/lucky/lucky.init" feeds/smpackage/lucky/files/lucky.init
+      cp "${SCRIPT_DIR}/lucky/lucky.config" feeds/smpackage/lucky/files/lucky.config
+      python3 - "${LUCKY_MK}" <<'PY'
+import sys
+from pathlib import Path
+
+p = Path(sys.argv[1])
+text = p.read_text()
+old = "\t$(INSTALL_DIR) $(1)/usr/bin\n\t$(INSTALL_BIN) $(PKG_BUILD_DIR)/lucky $(1)/usr/bin/lucky\n"
+new = old + (
+    "\t$(INSTALL_DIR) $(1)/etc/init.d $(1)/etc/config\n"
+    "\t$(INSTALL_BIN) ./files/lucky.init $(1)/etc/init.d/lucky\n"
+    "\t$(INSTALL_CONF) ./files/lucky.config $(1)/etc/config/lucky\n"
+)
+if old not in text:
+    raise SystemExit(f"cannot patch {p}: lucky install block not found")
+text = text.replace(old, new, 1)
+conffiles = "define Package/$(PKG_NAME)/conffiles\n/etc/config/lucky\n/etc/lucky/*\nendef\n\n"
+if "Package/$(PKG_NAME)/conffiles" not in text:
+    marker = "define Package/$(PKG_NAME)/description\n"
+    text = text.replace(marker, conffiles + marker, 1)
+p.write_text(text)
+PY
+    fi
+  fi
   # vsftpd* 通配
   rm -rf feeds/smpackage/vsftpd feeds/smpackage/vsftpd-alt \
          feeds/smpackage/vsftpd* 2>/dev/null || true

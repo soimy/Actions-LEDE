@@ -1,0 +1,45 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+STOP=15
+USE_PROCD=1
+
+PROG=/usr/bin/lucky
+CONFDIR=/etc/lucky
+
+start_service() {
+	local enabled port safeurl delay uptime
+
+	enabled="$(uci -q get lucky.lucky.enabled 2>/dev/null || echo 0)"
+	[ "$enabled" = 1 ] || return 0
+	port="$(uci -q get lucky.lucky.port 2>/dev/null || echo 16601)"
+	safeurl="$(uci -q get lucky.lucky.safe 2>/dev/null || true)"
+	delay="$(uci -q get lucky.lucky.delay 2>/dev/null || echo 5)"
+
+	mkdir -p "$CONFDIR"
+	uptime="$(awk -F. '{print $1}' /proc/uptime)"
+	[ "$uptime" -ge 120 ] || sleep "$delay"
+
+	"$PROG" -setconf -key AdminWebListenPort -value "$port" -cd "$CONFDIR" >/dev/null 2>&1
+	if [ -n "$safeurl" ]; then
+		"$PROG" -setconf -key SafeURL -value "$safeurl" -cd "$CONFDIR" >/dev/null 2>&1
+	else
+		"$PROG" -rCancelSafeURL -cd "$CONFDIR" >/dev/null 2>&1
+	fi
+
+	procd_open_instance
+	procd_set_param command "$PROG" -cd "$CONFDIR"
+	procd_set_param respawn
+	procd_set_param stderr 1
+	procd_close_instance
+}
+
+stop_service() {
+	for pid in $(pidof lucky 2>/dev/null); do
+		kill "$pid" 2>/dev/null
+	done
+}
+
+service_triggers() {
+	procd_add_reload_trigger lucky
+}
