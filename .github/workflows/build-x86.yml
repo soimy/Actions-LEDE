@@ -126,6 +126,13 @@ jobs:
         make tools/compile -j$(($(nproc)+1)) || make tools/compile -j1 V=s
         make toolchain/compile -j$(($(nproc)+1)) || make toolchain/compile -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
+        # 取 toolchain + kernel 源码 commit 作为 kernel 缓存 key 指纹。
+        # toolchainHash 与 cachewrtbuild 同源(git log tools toolchain),
+        # 避免 toolchain 升级后命中旧 kernel 缓存导致 ABI 不匹配;
+        # kernelHash 跟踪 target/linux 源码变更。
+        # || true 容错: 取不到 hash 时让 key 含空值(缓存不命中), 不阻断编译。
+        echo "toolchain_hash=$(git log --pretty=tformat:'%h' -n1 tools toolchain 2>/dev/null || echo none)" >> $GITHUB_OUTPUT
+        echo "kernel_hash=$(git log --pretty=tformat:'%h' -n1 target/linux 2>/dev/null || echo none)" >> $GITHUB_OUTPUT
 
     - name: 空间使用情况3_1
       if: (!cancelled())
@@ -142,11 +149,30 @@ jobs:
       if: (!cancelled())
       run: df -hT
 
+    - name: 恢复内核编译缓存
+      id: kernel_cache
+      if: steps.mtools.outputs.status == 'success' && !cancelled()
+      uses: actions/cache@v4
+      with:
+        # 只缓存 kernel 源码树+编译产物, 不碰 package 产物(它们在同级的 openssl-* 等并列目录)。
+        # staging_dir/target-*/usr 是 kernel+package 共享 staging, 不缓存以免冲突。
+        path: |
+          openwrt/build_dir/target-*/linux-*
+        # key = toolchain指纹 + kernel源码指纹; 二者任一变更则失效, restore-keys 兜底拿旧产物垫底。
+        key: kernel-x86-${{ steps.mtools.outputs.toolchain_hash }}-${{ steps.mtools.outputs.kernel_hash }}
+        restore-keys: |
+          kernel-x86-
+
     - name: 编译内核
       id: mkernel
       if: steps.mtools.outputs.status == 'success' && !cancelled()
       run: |
         cd openwrt
+        if [ "${{ steps.kernel_cache.outputs.cache-hit }}" = "true" ]; then
+          echo "✅ kernel 缓存命中, 增量编译将跳过已编译部分"
+        else
+          echo "⚠️ kernel 缓存未命中, 全量编译内核"
+        fi
         echo -e "$(($(nproc)+1)) thread compile"
         make target/linux/compile -j$(($(nproc)+1)) || make target/linux/compile -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
