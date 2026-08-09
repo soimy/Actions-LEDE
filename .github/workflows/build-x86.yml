@@ -76,6 +76,12 @@ jobs:
         ccache: 'true'
         mixkey: 'x86-smpackage-istore-binutils243-kconfig43'  # Kconfig 符号变更，丢弃旧缓存
         prefix: ${{ github.workspace }}/openwrt
+        # skip:false = 只 restore 缓存, 不 sed 改写 Makefile 跳过 toolchain 构建。
+        # 原因: skip:true 时 cachewrtbuild 删除 $(tool*/stamp-compile) 依赖, 与本 workflow
+        # 显式 `make tools/compile` + `make toolchain/compile` 冲突 —— stamp 依赖错乱导致
+        # toolchain/binutils 在缓存命中后被错误重编, 链接 as-new 时 __fprintf_chk undefined
+        # (run 31296832116)。skip:false 让 stamp 机制自行增量跳过已编译部分, 行为可预测。
+        skip: 'false'
 
     - name: 安装 feeds
       run: |
