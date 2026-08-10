@@ -121,14 +121,25 @@ jobs:
         # env var 覆盖文件内 := 赋值, 所以 env:HOST_CFLAGS 被静默丢弃 (run 31347689424 链接
         # 命令里无 -U_FORTIFY_SOURCE)。直接 sed 注入, configure 阶段 CFLAGS 一定带上,
         # 写进 config.status 后 make all 沿用。lede 不像 OpenWrt master 有 HOST_EXTRA_CFLAGS。
-        # ubuntu-24.04 gcc 14 + glibc 2.39 的 host 工具链接缺符号, 逐类处理:
-        #  -U_FORTIFY_SOURCE            消 __fprintf_chk/__memcpy_chk 等 fortify 符号 (已验证)
-        #  -D__isoc23_strtoul=strtoul   glibc 2.39 C23 strto* 别名重定向到普通 strtoul (已验证)
-        # 不能加 -U_FILE_OFFSET_BITS: 它消 binutils 的 fopen64, 但破坏 fakeroot time64 变体
-        # (run 31351607961: fakeroot 显式 -D_FILE_OFFSET_BITS=64 -D_TIME_BITS=64, -U 在后覆盖
-        # 导致 _TIME_BITS=64 失去配对报错)。binutils 的 fopen64 另想办法。
-        sed -i 's/^HOST_CFLAGS:=-O2/HOST_CFLAGS:=-O2 -U_FORTIFY_SOURCE -D__isoc23_strtoul=strtoul/' rules.mk
+        # ubuntu-24.04 gcc 14 + glibc 2.39 的 host binutils 链接缺符号, 用 -U_FORTIFY_SOURCE
+        # + -U_FILE_OFFSET_BITS 一次性消掉 fortify(__fprintf_chk 等)、LFS(fopen64 等) 和
+        # C23 strto*(__isoc23_strtoul) 三类符号 (run 31351607961 验证 binutils 全过)。
+        sed -i 's/^HOST_CFLAGS:=-O2/HOST_CFLAGS:=-O2 -U_FORTIFY_SOURCE -U_FILE_OFFSET_BITS/' rules.mk
         grep -n '^HOST_CFLAGS:=' rules.mk || { echo "ERROR: rules.mk HOST_CFLAGS 注入失败" >&2; exit 1; }
+        # fakeroot 1.36 的 time64 变体硬编码 -D_FILE_OFFSET_BITS=64 -D_TIME_BITS=64 在 _CPPFLAGS,
+        # 命令行里 _CPPFLAGS 在前 CFLAGS 在后, 全局 -U_FILE_OFFSET_BITS 会覆盖它, 触发
+        # features-time64.h "#error _TIME_BITS=64 is allowed only with _FILE_OFFSET_BITS=64"
+        # (run 31351607961)。重定义 Host/Prepare 在解压后 sed 删掉这两个 -D: time64 变体全部
+        # 实质内容在 #ifdef TIME64_HACK 内, x86-64 不定义 TIME64_HACK, 删 -D 零功能损失。
+        # 用临时片段文件 + sed r 命令插入, 避免嵌套 sed 的转义地狱。
+        cat > /tmp/fakeroot-prepare.mk <<'PREP'
+define Host/Prepare
+	$(call Host/Prepare/Default)
+	sed -i 's/^libfakeroot_time64_la_CPPFLAGS = -D_FILE_OFFSET_BITS=64 -D_TIME_BITS=64/libfakeroot_time64_la_CPPFLAGS =/' $(HOST_BUILD_DIR)/Makefile.am $(HOST_BUILD_DIR)/Makefile.in
+endef
+PREP
+        sed -i '/^include $(INCLUDE_DIR)\/host-build.mk$/r /tmp/fakeroot-prepare.mk' tools/fakeroot/Makefile
+        grep -A4 'define Host/Prepare' tools/fakeroot/Makefile || { echo "ERROR: fakeroot Host/Prepare 注入失败" >&2; exit 1; }
         # 强制冷编译 binutils: cachewrtbuild 热缓存 restore 后, stamp 机制会判断 as-new 需重链
         # 却不重编全部 .o, 新旧 .o 混链导致 undefined (run 31323441659)。删 build_dir 产物强制全量。
         rm -rf build_dir/toolchain-*/binutils-2.43.1
