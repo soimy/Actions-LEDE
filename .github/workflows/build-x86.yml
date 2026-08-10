@@ -131,13 +131,12 @@ jobs:
         # features-time64.h "#error _TIME_BITS=64 is allowed only with _FILE_OFFSET_BITS=64"
         # (run 31351607961)。重定义 Host/Prepare 在解压后 sed 删掉这两个 -D: time64 变体全部
         # 实质内容在 #ifdef TIME64_HACK 内, x86-64 不定义 TIME64_HACK, 删 -D 零功能损失。
-        # 用临时片段文件 + sed r 命令插入, 避免嵌套 sed 的转义地狱。
-        cat > /tmp/fakeroot-prepare.mk <<'PREP'
-define Host/Prepare
-	$(call Host/Prepare/Default)
-	sed -i 's/^libfakeroot_time64_la_CPPFLAGS = -D_FILE_OFFSET_BITS=64 -D_TIME_BITS=64/libfakeroot_time64_la_CPPFLAGS =/' $(HOST_BUILD_DIR)/Makefile.am $(HOST_BUILD_DIR)/Makefile.in
-endef
-PREP
+        # 用 printf 写片段文件 + sed r 插入, 避免 heredoc 顶格内容破坏 YAML literal block 缩进。
+        printf '%s\n' \
+          'define Host/Prepare' \
+          '	$(call Host/Prepare/Default)' \
+          "	sed -i 's/^libfakeroot_time64_la_CPPFLAGS = -D_FILE_OFFSET_BITS=64 -D_TIME_BITS=64/libfakeroot_time64_la_CPPFLAGS =/' \$(HOST_BUILD_DIR)/Makefile.am \$(HOST_BUILD_DIR)/Makefile.in" \
+          'endef' > /tmp/fakeroot-prepare.mk
         sed -i '/^include $(INCLUDE_DIR)\/host-build.mk$/r /tmp/fakeroot-prepare.mk' tools/fakeroot/Makefile
         grep -A4 'define Host/Prepare' tools/fakeroot/Makefile || { echo "ERROR: fakeroot Host/Prepare 注入失败" >&2; exit 1; }
         # 强制冷编译 binutils: cachewrtbuild 热缓存 restore 后, stamp 机制会判断 as-new 需重链
