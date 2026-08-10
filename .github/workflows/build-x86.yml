@@ -152,7 +152,25 @@ jobs:
         fi
         echo -e "$(($(nproc)+1)) thread compile"
         make tools/compile -j$(($(nproc)+1)) || make tools/compile -j1 V=s
-        make toolchain/compile -j$(($(nproc)+1)) || make toolchain/compile -j1 V=s
+        if make toolchain/compile -j$(($(nproc)+1)); then
+          : # 成功
+        else
+          echo "===== binutils 链接诊断 ====="
+          echo "--- host gcc 链的 libc ---"
+          staging_dir/host/bin/gcc -print-file-name=libc.so 2>&1 || true
+          staging_dir/host/bin/gcc -print-search-dirs 2>&1 | grep -i libc || true
+          echo "--- host gcc 指向 ---"
+          ls -la staging_dir/host/bin/gcc 2>&1 | head -1 || true
+          readlink -f staging_dir/host/bin/gcc 2>&1 || true
+          echo "--- binutils config 是否定义 HAVE_FOPEN64 ---"
+          grep -rh "HAVE_FOPEN64\|HAVE_FTELLO64\|HAVE_FSEEKO64" build_dir/toolchain-*/binutils-2.43.1/bfd/config.h 2>/dev/null || echo "config.h 不在预期路径"
+          find build_dir/toolchain-* -name config.h 2>/dev/null | head -3
+          echo "--- staging 目录里有无 libc/fortify 库 ---"
+          ls staging_dir/host/lib/ 2>/dev/null | grep -iE "libc|fortify" || echo "host/lib 无 libc"
+          ls staging_dir/toolchain-*musl/lib/ 2>/dev/null | grep -iE "libc|fortify|zstd" || echo "toolchain/lib 无匹配"
+          echo "===== 诊断结束, 重跑 -j1 V=s ====="
+          make toolchain/compile -j1 V=s || true
+        fi
         echo "status=success" >> $GITHUB_OUTPUT
         # 取 toolchain + kernel 源码 commit 作为 kernel 缓存 key 指纹。
         # toolchainHash 与 cachewrtbuild 同源(git log tools toolchain),
