@@ -115,15 +115,18 @@ jobs:
 
     - name: 编译工具链
       id: mtools
-      env:
-        # 兼容旧缓存/工具链；binutils 主版本由 packages-x86.txt 固定为 2.43.1。
-        HOST_CFLAGS: -O2 -U_FORTIFY_SOURCE
       run: |
         cd openwrt
-        # 强制冷编译 binutils: cachewrtbuild 热缓存 restore 后, stamp 机制会判断
-        # as-new 需重链却不重编全部 .o, 新旧 .o 混链导致 __fprintf_chk/fopen64/
-        # __isoc23_strtol 等 undefined (run 31323441659)。冷编译 (run 31300398827)
-        # 全量链接能过。删 build_dir 里的 binutils 产物强制全量, ~1-2min 代价换稳定。
+        # lede 的 rules.mk 用 := 硬编码 HOST_CFLAGS:=-O2 $(HOST_CPPFLAGS), GNU make 不允许
+        # env var 覆盖文件内 := 赋值, 所以 env:HOST_CFLAGS 被静默丢弃 (run 31347689424 链接
+        # 命令里无 -U_FORTIFY_SOURCE)。直接 sed 注入, configure 阶段 CFLAGS 一定带上,
+        # 写进 config.status 后 make all 沿用。lede 不像 OpenWrt master 有 HOST_EXTRA_CFLAGS。
+        # -U_FORTIFY_SOURCE 阻止 .o 生成 __fprintf_chk/__isoc23_strtol 等 glibc 2.39 fortify
+        # 与 C23 别名引用 (ubuntu-24.04 gcc 14 默认 _FORTIFY_SOURCE=3)。
+        sed -i 's/^HOST_CFLAGS:=-O2/HOST_CFLAGS:=-O2 -U_FORTIFY_SOURCE/' rules.mk
+        grep -n '^HOST_CFLAGS:=' rules.mk || { echo "ERROR: rules.mk HOST_CFLAGS 注入失败" >&2; exit 1; }
+        # 强制冷编译 binutils: cachewrtbuild 热缓存 restore 后, stamp 机制会判断 as-new 需重链
+        # 却不重编全部 .o, 新旧 .o 混链导致 undefined (run 31323441659)。删 build_dir 产物强制全量。
         rm -rf build_dir/toolchain-*/binutils-2.43.1
         make defconfig
         resolved_binutils="$(sed -n 's/^CONFIG_BINUTILS_VERSION="\([^\"]*\)"/\1/p' .config || true)"
