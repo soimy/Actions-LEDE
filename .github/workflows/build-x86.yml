@@ -120,6 +120,11 @@ jobs:
         HOST_CFLAGS: -O2 -U_FORTIFY_SOURCE
       run: |
         cd openwrt
+        # 强制冷编译 binutils: cachewrtbuild 热缓存 restore 后, stamp 机制会判断
+        # as-new 需重链却不重编全部 .o, 新旧 .o 混链导致 __fprintf_chk/fopen64/
+        # __isoc23_strtol 等 undefined (run 31323441659)。冷编译 (run 31300398827)
+        # 全量链接能过。删 build_dir 里的 binutils 产物强制全量, ~1-2min 代价换稳定。
+        rm -rf build_dir/toolchain-*/binutils-2.43.1
         make defconfig
         resolved_binutils="$(sed -n 's/^CONFIG_BINUTILS_VERSION="\([^\"]*\)"/\1/p' .config || true)"
         echo "Resolved binutils version: ${resolved_binutils:-<unset>}"
