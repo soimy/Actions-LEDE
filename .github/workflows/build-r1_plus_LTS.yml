@@ -169,8 +169,10 @@ jobs:
       if: steps.mkernel.outputs.status == 'success' && !cancelled()
       uses: actions/cache@v5
       with:
+        # 缓存插件编译产物, 排除 linux-* (kernel 缓存) 和 host (已清理)。
+        # OpenWrt 的 package 产物是 build_dir/target-*/<pkg>/ 格式, 无 packages/ 子目录。
         path: |
-          openwrt/build_dir/target-*/packages/
+          openwrt/build_dir/target-*/
         key: pkg-r1pluslts-${{ steps.mtools.outputs.toolchain_hash }}-${{ hashFiles('configs/r1pluslts-with-docker.txt', 'scripts/packages.sh', 'scripts/feeds-extra.sh') }}
         restore-keys: |
           pkg-r1pluslts-
@@ -196,7 +198,8 @@ jobs:
       run: |
         cd openwrt
         rm -rf build_dir/target-*/host
-        find build_dir/target-*/packages/ -name "*.o" -o -name "*.o.cmd" 2>/dev/null \
+        rm -rf build_dir/target-*/linux-*
+        find build_dir/target-*/ -name "*.o" -o -name "*.o.cmd" 2>/dev/null \
           | xargs rm -f 2>/dev/null || true
         echo "status=success" >> $GITHUB_OUTPUT
 

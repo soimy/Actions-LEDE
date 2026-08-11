@@ -245,11 +245,13 @@ jobs:
       if: steps.mkernel.outputs.status == 'success' && !cancelled()
       uses: actions/cache@v5
       with:
-        # 缓存插件编译产物(不含 .o, 由下方"精简插件缓存"步骤清理),
-        # 保留 stamp/Makefile 依赖供增量编译识别变更。
-        # key 包含 toolchain 指纹 + 插件配置哈希, 任一变更则失效。
+        # 缓存插件编译产物(不含 linux-* 和 host, 前者由 kernel 缓存负责,
+        # 后者已在下方"清除插件编译文件 & 精简缓存"中清除)。
+        # 注意 OpenWrt 的 package 产物直接放在 build_dir/target-*/<pkg>/ 下,
+        # 没有 packages/ 子目录, 因此缓存整个 build_dir/target-*/。
         path: |
-          openwrt/build_dir/target-*/packages/
+          openwrt/build_dir/target-*/
+        # key = toolchain指纹 + 插件配置哈希; 任一变更则失效。
         key: pkg-x86-${{ steps.mtools.outputs.toolchain_hash }}-${{ hashFiles('configs/packages-x86.txt', 'scripts/packages.sh', 'scripts/feeds-extra.sh') }}
         restore-keys: |
           pkg-x86-
@@ -277,9 +279,10 @@ jobs:
         cd openwrt
         # 清除 host 编译工具(无需缓存, 每个 job 重编代价低)
         rm -rf build_dir/target-*/host
-        # 精简 package 缓存: 移除 .o 文件和 .o.cmd 依赖文件,
-        # 保留 stamp/Makefile 供下次增量编译识别变更, 节省缓存空间。
-        find build_dir/target-*/packages/ -name "*.o" -o -name "*.o.cmd" 2>/dev/null \
+        # 清除 linux-* 内核编译产物(由 kernel 缓存独立管理, 避免重复)
+        rm -rf build_dir/target-*/linux-*
+        # 精简 package 缓存: 移除 .o 文件, 保留 stamp/Makefile 供增量编译。
+        find build_dir/target-*/ -name "*.o" -o -name "*.o.cmd" 2>/dev/null \
           | xargs rm -f 2>/dev/null || true
         echo "status=success" >> $GITHUB_OUTPUT
 
