@@ -240,22 +240,6 @@ jobs:
       if: (!cancelled())
       run: df -hT
 
-    - name: 恢复插件编译缓存
-      id: package_cache
-      if: steps.mkernel.outputs.status == 'success' && !cancelled()
-      uses: actions/cache@v5
-      with:
-        # 缓存插件编译产物(不含 linux-* 和 host, 前者由 kernel 缓存负责,
-        # 后者已在下方"清除插件编译文件 & 精简缓存"中清除)。
-        # 注意 OpenWrt 的 package 产物直接放在 build_dir/target-*/<pkg>/ 下,
-        # 没有 packages/ 子目录, 因此缓存整个 build_dir/target-*/。
-        path: |
-          openwrt/build_dir/target-*/
-        # key = toolchain指纹 + 插件配置哈希; 任一变更则失效。
-        key: pkg-x86-${{ steps.mtools.outputs.toolchain_hash }}-${{ hashFiles('configs/packages-x86.txt', 'scripts/packages.sh', 'scripts/feeds-extra.sh') }}
-        restore-keys: |
-          pkg-x86-
-
     - name: 编译插件
       id: mpackage
       if: steps.mkernel.outputs.status == 'success' && !cancelled()
@@ -272,18 +256,27 @@ jobs:
       if: (!cancelled())
       run: df -hT
 
-    - name: 清除插件编译文件 & 精简缓存
+    - name: 清除插件编译文件 & 精简空间
       id: cpackage
       if: steps.mpackage.outputs.status == 'success' && !cancelled()
       run: |
         cd openwrt
+        # 已放弃 package 插件缓存(命中也不跳过未更新插件的 .o 编译, 且 save 3GB 成本高),
+        # 故不再需要为缩小缓存体积而删除 .o —— 保留 .o 让下方 make target/install 复用,
+        # 编译时间只减不增, 与本决策前持平甚至更快。
         # 清除 host 编译工具(无需缓存, 每个 job 重编代价低)
         rm -rf build_dir/target-*/host
         # 清除 linux-* 内核编译产物(由 kernel 缓存独立管理, 避免重复)
         rm -rf build_dir/target-*/linux-*
-        # 精简 package 缓存: 移除 .o 文件, 保留 stamp/Makefile 供增量编译。
-        find build_dir/target-*/ -name "*.o" -o -name "*.o.cmd" 2>/dev/null \
-          | xargs rm -f 2>/dev/null || true
+        # ccache 命中率核查: cachewrtbuild(ccache:true) 理论上应对单文件级编译命中,
+        # 但需确认 CCACHE_DIR 与 cachewrtbuild 缓存的 .ccache 路径是否一致(疑似错配零命中)。
+        # ponytail: 仅诊断输出, 不改构建逻辑; 命中率长期偏低时才考虑调 ccache 策略。
+        if command -v ccache >/dev/null 2>&1; then
+          echo "===== ccache 统计 (插件编译后) ====="
+          ccache -s || true
+        else
+          echo "ccache 命令不可用(未找到)"
+        fi
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: 空间使用情况6
