@@ -71,6 +71,7 @@ jobs:
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
     - name: 开启缓存
+      id: cachewrtbuild
       uses: klever1988/cachewrtbuild@main
       with:
         ccache: 'true'
@@ -81,6 +82,8 @@ jobs:
         # 显式 `make tools/compile` + `make toolchain/compile` 冲突 —— stamp 依赖错乱导致
         # toolchain/binutils 在缓存命中后被错误重编, 链接 as-new 时 __fprintf_chk undefined
         # (run 31296832116)。skip:false 让 stamp 机制自行增量跳过已编译部分, 行为可预测。
+        # 命中判断由下方"编译工具链"步骤用 steps.cachewrtbuild.outputs.hit 读取:
+        # hit=1 时跳过 toolchain 编译(直接复用缓存的 staging_dir), 未命中才全量编译。
         skip: 'false'
 
     - name: 安装 feeds
@@ -139,9 +142,11 @@ jobs:
           'endef' > /tmp/fakeroot-prepare.mk
         sed -i '/^include $(INCLUDE_DIR)\/host-build.mk$/r /tmp/fakeroot-prepare.mk' tools/fakeroot/Makefile
         grep -A4 'define Host/Prepare' tools/fakeroot/Makefile || { echo "ERROR: fakeroot Host/Prepare 注入失败" >&2; exit 1; }
-        # 强制冷编译 binutils: cachewrtbuild 热缓存 restore 后, stamp 机制会判断 as-new 需重链
-        # 却不重编全部 .o, 新旧 .o 混链导致 undefined (run 31323441659)。删 build_dir 产物强制全量。
-        rm -rf build_dir/toolchain-*/binutils-2.43.1
+        # 条件冷编译: cachewrtbuild 缓存命中时, staging_dir 已就绪, 跳过 toolchain 编译。
+        # 缓存未命中时, 全量编译。相比 skip:true 的 stamp 篡改方式更安全。
+        # 历史背景: run 31296832116 中 skip:true 删除 stamp 依赖后与显式 make 冲突,
+        # 及 run 31323441659 中缓存恢复后 binutils 新旧 .o 混链 undefined。
+        # 此处直接用 cachewrtbuild 的 hit 输出控制, 不篡改 Makefile, 行为可预测。
         make defconfig
         resolved_binutils="$(sed -n 's/^CONFIG_BINUTILS_VERSION="\([^\"]*\)"/\1/p' .config || true)"
         echo "Resolved binutils version: ${resolved_binutils:-<unset>}"
@@ -150,26 +155,34 @@ jobs:
           grep -E '^CONFIG_BINUTILS(_USE_VERSION|_VERSION)_' .config || true
           exit 1
         fi
-        echo -e "$(($(nproc)+1)) thread compile"
-        make tools/compile -j$(($(nproc)+1)) || make tools/compile -j1 V=s
-        if make toolchain/compile -j$(($(nproc)+1)); then
-          : # 成功
+        if [ "${{ steps.cachewrtbuild.outputs.hit }}" = "1" ]; then
+          echo "✅ cachewrtbuild 缓存命中, staging_dir 已就绪, 跳过 toolchain 编译"
         else
-          echo "===== binutils 链接诊断 ====="
-          echo "--- host gcc 链的 libc ---"
-          staging_dir/host/bin/gcc -print-file-name=libc.so 2>&1 || true
-          staging_dir/host/bin/gcc -print-search-dirs 2>&1 | grep -i libc || true
-          echo "--- host gcc 指向 ---"
-          ls -la staging_dir/host/bin/gcc 2>&1 | head -1 || true
-          readlink -f staging_dir/host/bin/gcc 2>&1 || true
-          echo "--- binutils config 是否定义 HAVE_FOPEN64 ---"
-          grep -rh "HAVE_FOPEN64\|HAVE_FTELLO64\|HAVE_FSEEKO64" build_dir/toolchain-*/binutils-2.43.1/bfd/config.h 2>/dev/null || echo "config.h 不在预期路径"
-          find build_dir/toolchain-* -name config.h 2>/dev/null | head -3
-          echo "--- staging 目录里有无 libc/fortify 库 ---"
-          ls staging_dir/host/lib/ 2>/dev/null | grep -iE "libc|fortify" || echo "host/lib 无 libc"
-          ls staging_dir/toolchain-*musl/lib/ 2>/dev/null | grep -iE "libc|fortify|zstd" || echo "toolchain/lib 无匹配"
-          echo "===== 诊断结束, 重跑 -j1 V=s ====="
-          make toolchain/compile -j1 V=s || true
+          echo "⚠️ 缓存未命中, 全量编译 toolchain"
+          # 强制冷编译 binutils: cachewrtbuild 热缓存 restore 后, stamp 机制会判断 as-new 需重链
+          # 却不重编全部 .o, 新旧 .o 混链导致 undefined (run 31323441659)。删 build_dir 产物强制全量。
+          rm -rf build_dir/toolchain-*/binutils-2.43.1
+          echo -e "$(($(nproc)+1)) thread compile"
+          make tools/compile -j$(($(nproc)+1)) || make tools/compile -j1 V=s
+          if make toolchain/compile -j$(($(nproc)+1)); then
+            : # 成功
+          else
+            echo "===== binutils 链接诊断 ====="
+            echo "--- host gcc 链的 libc ---"
+            staging_dir/host/bin/gcc -print-file-name=libc.so 2>&1 || true
+            staging_dir/host/bin/gcc -print-search-dirs 2>&1 | grep -i libc || true
+            echo "--- host gcc 指向 ---"
+            ls -la staging_dir/host/bin/gcc 2>&1 | head -1 || true
+            readlink -f staging_dir/host/bin/gcc 2>&1 || true
+            echo "--- binutils config 是否定义 HAVE_FOPEN64 ---"
+            grep -rh "HAVE_FOPEN64\|HAVE_FTELLO64\|HAVE_FSEEKO64" build_dir/toolchain-*/binutils-2.43.1/bfd/config.h 2>/dev/null || echo "config.h 不在预期路径"
+            find build_dir/toolchain-* -name config.h 2>/dev/null | head -3
+            echo "--- staging 目录里有无 libc/fortify 库 ---"
+            ls staging_dir/host/lib/ 2>/dev/null | grep -iE "libc|fortify" || echo "host/lib 无 libc"
+            ls staging_dir/toolchain-*musl/lib/ 2>/dev/null | grep -iE "libc|fortify|zstd" || echo "toolchain/lib 无匹配"
+            echo "===== 诊断结束, 重跑 -j1 V=s ====="
+            make toolchain/compile -j1 V=s || true
+          fi
         fi
         echo "status=success" >> $GITHUB_OUTPUT
         # 取 toolchain + kernel 源码 commit 作为 kernel 缓存 key 指纹。
@@ -198,7 +211,7 @@ jobs:
     - name: 恢复内核编译缓存
       id: kernel_cache
       if: steps.mtools.outputs.status == 'success' && !cancelled()
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         # 只缓存 kernel 源码树+编译产物, 不碰 package 产物(它们在同级的 openssl-* 等并列目录)。
         # staging_dir/target-*/usr 是 kernel+package 共享 staging, 不缓存以免冲突。
@@ -227,6 +240,20 @@ jobs:
       if: (!cancelled())
       run: df -hT
 
+    - name: 恢复插件编译缓存
+      id: package_cache
+      if: steps.mkernel.outputs.status == 'success' && !cancelled()
+      uses: actions/cache@v5
+      with:
+        # 缓存插件编译产物(不含 .o, 由下方"精简插件缓存"步骤清理),
+        # 保留 stamp/Makefile 依赖供增量编译识别变更。
+        # key 包含 toolchain 指纹 + 插件配置哈希, 任一变更则失效。
+        path: |
+          openwrt/build_dir/target-*/packages/
+        key: pkg-x86-${{ steps.mtools.outputs.toolchain_hash }}-${{ hashFiles('configs/packages-x86.txt', 'scripts/packages.sh', 'scripts/feeds-extra.sh') }}
+        restore-keys: |
+          pkg-x86-
+
     - name: 编译插件
       id: mpackage
       if: steps.mkernel.outputs.status == 'success' && !cancelled()
@@ -243,12 +270,17 @@ jobs:
       if: (!cancelled())
       run: df -hT
 
-    - name: 清除插件编译文件
+    - name: 清除插件编译文件 & 精简缓存
       id: cpackage
       if: steps.mpackage.outputs.status == 'success' && !cancelled()
       run: |
         cd openwrt
+        # 清除 host 编译工具(无需缓存, 每个 job 重编代价低)
         rm -rf build_dir/target-*/host
+        # 精简 package 缓存: 移除 .o 文件和 .o.cmd 依赖文件,
+        # 保留 stamp/Makefile 供下次增量编译识别变更, 节省缓存空间。
+        find build_dir/target-*/packages/ -name "*.o" -o -name "*.o.cmd" 2>/dev/null \
+          | xargs rm -f 2>/dev/null || true
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: 空间使用情况6

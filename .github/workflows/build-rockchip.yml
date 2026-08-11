@@ -64,6 +64,7 @@ jobs:
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
     - name: 开启缓存
+      id: cachewrtbuild
       uses: klever1988/cachewrtbuild@main
       with:
         ccache: 'true'
@@ -108,9 +109,16 @@ jobs:
         cd openwrt
         make defconfig
         echo -e "$(($(nproc)+1)) thread compile"
-        make tools/compile -j$(($(nproc)+1)) || make tools/compile -j1 V=s
-        make toolchain/compile -j$(($(nproc)+1)) || make toolchain/compile -j1 V=s
+        if [ "${{ steps.cachewrtbuild.outputs.hit }}" = "1" ]; then
+          echo "✅ cachewrtbuild 缓存命中, staging_dir 已就绪, 跳过 toolchain 编译"
+        else
+          echo "⚠️ 缓存未命中, 全量编译 toolchain"
+          make tools/compile -j$(($(nproc)+1)) || make tools/compile -j1 V=s
+          make toolchain/compile -j$(($(nproc)+1)) || make toolchain/compile -j1 V=s
+        fi
         echo "status=success" >> $GITHUB_OUTPUT
+        echo "toolchain_hash=$(git log --pretty=tformat:'%h' -n1 tools toolchain 2>/dev/null || echo none)" >> $GITHUB_OUTPUT
+        echo "kernel_hash=$(git log --pretty=tformat:'%h' -n1 target/linux 2>/dev/null || echo none)" >> $GITHUB_OUTPUT
 
     - name: 空间使用情况3_1
       if: (!cancelled())
@@ -127,11 +135,27 @@ jobs:
       if: (!cancelled())
       run: df -hT
 
+    - name: 恢复内核编译缓存
+      id: kernel_cache
+      if: steps.mtools.outputs.status == 'success' && !cancelled()
+      uses: actions/cache@v5
+      with:
+        path: |
+          openwrt/build_dir/target-*/linux-*
+        key: kernel-rockchip-${{ steps.mtools.outputs.toolchain_hash }}-${{ steps.mtools.outputs.kernel_hash }}
+        restore-keys: |
+          kernel-rockchip-
+
     - name: 编译内核
       id: mkernel
       if: steps.mtools.outputs.status == 'success' && !cancelled()
       run: |
         cd openwrt
+        if [ "${{ steps.kernel_cache.outputs.cache-hit }}" = "true" ]; then
+          echo "✅ kernel 缓存命中, 增量编译将跳过已编译部分"
+        else
+          echo "⚠️ kernel 缓存未命中, 全量编译内核"
+        fi
         echo -e "$(($(nproc)+1)) thread compile"
         make target/linux/compile -j$(($(nproc)+1)) || make target/linux/compile -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
@@ -139,6 +163,17 @@ jobs:
     - name: 空间使用情况4
       if: (!cancelled())
       run: df -hT
+
+    - name: 恢复插件编译缓存
+      id: package_cache
+      if: steps.mkernel.outputs.status == 'success' && !cancelled()
+      uses: actions/cache@v5
+      with:
+        path: |
+          openwrt/build_dir/target-*/packages/
+        key: pkg-rockchip-${{ steps.mtools.outputs.toolchain_hash }}-${{ hashFiles('configs/packages.txt', 'configs/rockchip-L.txt', 'scripts/packages.sh', 'scripts/feeds-extra.sh') }}
+        restore-keys: |
+          pkg-rockchip-
 
     - name: 编译插件
       id: mpackage
@@ -155,12 +190,14 @@ jobs:
       if: (!cancelled())
       run: df -hT
 
-    - name: 清除插件编译文件
+    - name: 清除插件编译文件 & 精简缓存
       id: cpackage
       if: steps.mpackage.outputs.status == 'success' && !cancelled()
       run: |
         cd openwrt
         rm -rf build_dir/target-*/host
+        find build_dir/target-*/packages/ -name "*.o" -o -name "*.o.cmd" 2>/dev/null \
+          | xargs rm -f 2>/dev/null || true
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: 空间使用情况6
