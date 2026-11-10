@@ -74,7 +74,7 @@ PassWall 只保留这一套代理管理界面；OpenClash、SSR-Plus 不编译�
 
 ## 发布节奏
 
-- **x86/64**：每周自动发布一次，cron 为 `0 20 * * 4`（UTC），即北京时间每周五 04:00；同时支持手动触发和 `repository_dispatch`。
+- **x86/64**：每月自动发布一次，cron 为 `0 20 1 * *`（UTC），即每月 1 日 20:00 UTC、北京时间每月 2 日 04:00；同时支持手动触发和 `repository_dispatch`。
 - **Rockchip、R1 Plus/LTS、MediaTek Filogic、Allwinner**：没有固定定时任务，需要手动触发对应工作流。
 - **发布条件**：构建成功后自动上传 GitHub Release，标签格式为日期加平台名称，例如 `2026.08.04_X86-64`。
 - **清理策略**：成功发布后按整个仓库的 Release 列表保留最近 15 个；旧的工作流运行记录会定期清理，仅保留短期排错所需记录。

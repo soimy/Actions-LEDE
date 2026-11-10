@@ -1,6 +1,6 @@
 # Actions-LEDE CI Handoff
 
-本文档记录当前 CI 的真实流程、已经验证过的修复和下一次排错入口。当前仓库为 `soimy/Actions-LEDE`，HEAD 为 `ff603bd`。
+本文档记录当前 CI 的真实流程、已经验证过的修复和下一次排错入口。当前仓库为 `soimy/Actions-LEDE`，HEAD 为 `39acddb`。
 
 ## 当前结论
 
@@ -9,19 +9,19 @@
 - x86 工作流使用 `configs/packages-x86.txt`；其他平台还会追加各自的 target 配置。
 - PassWall 来自 `kenzok8/small-package`，iStore 来自 `linkease/istore`。
 - 可选应用已经移到 iStore；固件只保留 iStore 核心、基础网络、存储、PassWall、ZeroTier、Lucky 和 UPnP 等启动后立即需要的功能。
-- 最近一次完整成功构建对应 `d3a13c6`，之后又提交了 Lucky 服务修复和 iStore 应用精简；因此当前 HEAD 仍应通过下一次完整 CI 做回归验证。
+- 最近一次完整成功构建是 2026-10-22 的 [#39868487447](https://github.com/soimy/Actions-LEDE/actions/runs/39868487447)，HEAD `39acddb`；10-29 与 11-06 的定时构建失败原因见下文第 5、6 节。
 
 ## 工作流与触发
 
 | 工作流 | 配置 | 触发 |
 | --- | --- | --- |
-| `build-x86.yml` | `packages-x86.txt` | `workflow_dispatch`、`repository_dispatch`、cron `0 20 * * 4` |
+| `build-x86.yml` | `packages-x86.txt` | `workflow_dispatch`、`repository_dispatch`、cron `0 20 1 * *` |
 | `build-rockchip.yml` | `rockchip-L.txt` + `packages.txt` | `workflow_dispatch` |
 | `build-r1_plus_LTS.yml` | `r1pluslts-with-docker.txt` | `workflow_dispatch` |
 | `build-mtkfilogic.yml` | `filogic.txt` + `packages-L.txt` | `workflow_dispatch` |
 | `build-allwinner.yml` | `allwinner.txt` + `packages-L.txt` | `workflow_dispatch` |
 
-x86 的 cron 是每周四 20:00 UTC，即北京时间周五 04:00；workflow 文件中的旧注释和 Release 文案仍有 `192.168.8.1`，不能作为当前地址依据。
+x86 的 cron 是每月 1 日 20:00 UTC，即北京时间每月 2 日 04:00（2026-11 起由每周一次改为每月一次）；workflow 文件中的旧注释和 Release 文案仍有 `192.168.8.1`，不能作为当前地址依据。
 
 ## 构建顺序
 
@@ -137,6 +137,36 @@ logread | grep -i lucky
 - vlmcsd 在启用 ccache 时可能把 `ccache gcc` 作为多文件编译器，脚本强制使用 `TARGET_CC_NOCACHE`。
 - `make defconfig` 偶尔出现第三方 feed 的 recursive dependency 警告；先确认是否真正退出非零，不要把最后一行级联错误当作首个根因。
 
+### 5. 2026-10-29 NFS Kerberos 打包失败（上游已修）
+
+失败运行：[40975399933](https://github.com/soimy/Actions-LEDE/actions/runs/40975399933)。`编译插件` 阶段报：
+
+```text
+Package kmod-fs-nfs-common-rpcsec is missing dependencies for the following libraries:
+krb5.ko
+make[2]: *** [modules/fs.mk:534: .../kmod-fs-nfs-common-rpcsec_6.18.58-1_x86_64.ipk] Error 1
+```
+
+根因在 LEDE 6.18.58：`RPCSEC_GSS_KRB5` 新增 `CONFIG_CRYPTO_KRB5` 依赖，但 `fs.mk` 的 FILES 未包含 `krb5.ko`。上游已由 [`d320b9c9a9`](https://github.com/coolsnowwolf/lede/commit/d320b9c9a9f9d0a72b8a05e41ceae315387732f2)（2026-11-02）修复：把 `krb5.ko`/`krb5enc.ko` 纳入 RPCSEC 包并补 crypto 依赖。**不要**改 `packages-x86.txt` 规避；重跑即可。日志里 `ubus` 等包的 `curl 404` 是 `download.pl` 回退 git clone 的正常噪音，不是根因。
+
+### 6. 2026-11-06 初始化阶段挂死导致 runner 失联
+
+失败运行：[42138849825](https://github.com/soimy/Actions-LEDE/actions/runs/42138849825)。`初始化环境` 从 00:43 卡到 03:45（约 3 小时；正常 6–10 分钟），日志 zip 为空，runner 在日志上传前失联。
+
+原步骤中的 `apt-get full-upgrade`、`docker prune`、`timedatectl` 都没有超时上限，任一挂起都会拖到 runner 被回收。现已改为：
+
+- 去掉 `apt-get full-upgrade`，只 `apt-get update` + 由 `environment.sh` 显式安装构建依赖；
+- `free_disk_space.sh`、`environment.sh`、docker、timedatectl 全部加 `timeout`；
+- 初始化步骤 `timeout-minutes: 30`；job 级 `timeout-minutes`：x86 300 分钟，其余平台 330 分钟；
+- 增加 `concurrency`，避免定时与手动触发同时跑、互相抢 Release tag。
+
+如果再次失败，先看日志里哪条 `timeout` 命令触发；不要只从末尾的级联错误找根因。
+
+### 7. 工作流加固与构建频率
+
+- `actions/checkout`、`actions/upload-artifact` 固定到当前验证过的提交（v7.0.1 / v7.0.2），`klever1988/cachewrtbuild` 固定到 `b729f807837dbc3455d02fd35192660d9b662121`。
+- x86 定时由每周一次（`0 20 * * 4`）改为每月一次（`0 20 1 * *`，每月 1 日 20:00 UTC）；其余四个平台仍为 `workflow_dispatch` 手动触发。
+
 ## 手动触发与 10 分钟监控
 
 ```bash
@@ -180,7 +210,7 @@ make target/install -j"$(nproc)"
 
 ## 下一次 CI 验证清单
 
-1. 触发 `build-x86.yml`，确认当前 `ff603bd` 之后的配置仍能完整编译。
+1. 触发 `build-x86.yml`，确认当前 `39acddb` 之后的配置仍能完整编译；初始化步骤应在 30 分钟内结束。
 2. 确认 PassWall 的 Hysteria 后端和 iStore 核心都进入包索引。
 3. 刷入 UTM/测试设备后检查 Lucky init/config、SmartDNS、Samba4、NFS、ZeroTier、UPnP。
 4. 从 iStore 安装 Alist、阿里云盘 WebDAV、nlbwmon 和 Tailscale，确认“内置基础功能 + 按需应用”的分工。

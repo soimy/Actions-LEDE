@@ -30,28 +30,37 @@ env:
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 330
 
     steps:
     - name: 检查
-      uses: actions/checkout@main
+      uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a  # v7.0.1
 
     - name: 初始化环境
+      timeout-minutes: 30
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        chmod +x $FREE_DISK_SH && $FREE_DISK_SH
-        sudo -E apt-get -qq update -y
-        sudo -E apt-get -qq full-upgrade -y
-        chmod +x $ENV_SH && $ENV_SH
+        # 每条外部命令都加超时：宿主 runner 升级/apt 锁/网络 stall 都可能让
+        # 初始化阶段无限挂起，最终表现为 "runner lost communication"（run 42138849825）。
+        sudo -E timeout 480 bash "$FREE_DISK_SH"
+        # 只刷新索引，不做 full-upgrade：整机升级可能替换 systemd/openssh 等
+        # runner agent 自身依赖的组件，风险高且对构建无必要。
+        sudo -E apt-get -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o DPkg::Lock::Timeout=60 update -y
+        sudo -E timeout 900 bash "$ENV_SH"
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
-        sudo timedatectl set-timezone "$TZ"
-        docker image prune -a -f
-        docker container prune -f
+        sudo timeout 30 timedatectl set-timezone "$TZ" || true
+        timeout 120 docker image prune -a -f || true
+        timeout 60 docker container prune -f || true
         sudo mkdir -p /workdir
-        sudo chown $USER:$GROUPS /workdir
+        sudo chown "$USER":"$GROUPS" /workdir
 
     - name: 检查空间使用情况1
       if: (!cancelled())
@@ -65,7 +74,7 @@ jobs:
 
     - name: 开启缓存
       id: cachewrtbuild
-      uses: klever1988/cachewrtbuild@main
+      uses: klever1988/cachewrtbuild@b729f807837dbc3455d02fd35192660d9b662121
       with:
         ccache: 'true'
         mixkey: 'armv8'
@@ -223,7 +232,7 @@ jobs:
       run: df -hT
 
     - name: 上传 bin 目录
-      uses: actions/upload-artifact@main
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
       with:
         name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
@@ -253,7 +262,7 @@ jobs:
         done
 
     - name: 上传固件目录
-      uses: actions/upload-artifact@main
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
       if: env.UPLOAD_FIRMWARE == 'true' && steps.organize.outputs.status == 'success' && !cancelled()
       with:
         name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
