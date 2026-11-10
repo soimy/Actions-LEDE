@@ -156,8 +156,9 @@ make[2]: *** [modules/fs.mk:534: .../kmod-fs-nfs-common-rpcsec_6.18.58-1_x86_64.
 原步骤中的 `apt-get full-upgrade`、`docker prune`、`timedatectl` 都没有超时上限，任一挂起都会拖到 runner 被回收。现已改为：
 
 - 去掉 `apt-get full-upgrade`，只 `apt-get update` + 由 `environment.sh` 显式安装构建依赖；
+- `environment.sh` 改用 `--no-install-recommends`，跳过 texlive/dblatex 文档链（默认推荐包约 721MB，慢镜像下曾把 15 分钟超时拖爆，见 run 42812521548）；
 - `free_disk_space.sh`、`environment.sh`、docker、timedatectl 全部加 `timeout`；
-- 初始化步骤 `timeout-minutes: 30`；job 级 `timeout-minutes`：x86 300 分钟，其余平台 330 分钟；
+- 初始化步骤 `timeout-minutes: 40`；`environment.sh` 超时 1500 秒；job 级 `timeout-minutes`：x86 300 分钟，其余平台 330 分钟；
 - 增加 `concurrency`，避免定时与手动触发同时跑、互相抢 Release tag。
 
 如果再次失败，先看日志里哪条 `timeout` 命令触发；不要只从末尾的级联错误找根因。

@@ -44,7 +44,7 @@ jobs:
       uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a  # v7.0.1
 
     - name: 初始化环境
-      timeout-minutes: 30
+      timeout-minutes: 40
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
@@ -54,7 +54,7 @@ jobs:
         # 只刷新索引，不做 full-upgrade：整机升级可能替换 systemd/openssh 等
         # runner agent 自身依赖的组件，风险高且对构建无必要。
         sudo -E apt-get -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o DPkg::Lock::Timeout=60 update -y
-        sudo -E timeout 900 bash "$ENV_SH"
+        sudo -E timeout 1500 bash "$ENV_SH"
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo timeout 30 timedatectl set-timezone "$TZ" || true
         timeout 120 docker image prune -a -f || true
